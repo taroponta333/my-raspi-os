@@ -1,4 +1,4 @@
-name: Phase2 - Custom Minimal Boot Installer Builder
+name: Phase2 - Alpine Ultra-Lightweight Installer Builder
 
 on:
   push:
@@ -6,62 +6,33 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-custom-boot:
+  build-alpine-installer:
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Build Dependencies
+    - name: Download Alpine Linux for RPi (aarch64)
       run: |
-        sudo apt-get update
-        sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch gzip bzip2 perl tar cpio unzip rsync file bc wget libncurses5-dev libssl-dev xz-utils
+        mkdir -p deploy
+        # ラズパイ5に対応した最新の超軽量Alpine Linuxのパッケージを取得
+        wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-rpi-3.20.0-aarch64.tar.gz
+        tar -xf alpine-rpi-3.20.0-aarch64.tar.gz -C deploy
 
-    - name: Download and Setup Buildroot
-      run: |
-        # より安定し、ラズパイ5のサポートが強固なバージョンを採用
-        wget https://buildroot.org/downloads/buildroot-2024.02.3.tar.gz
-        tar -xf buildroot-2024.02.3.tar.gz
-        mv buildroot-2024.02.3 buildroot
-
-    - name: Configure Buildroot for Raspberry Pi 4/5
-      run: |
-        cd buildroot
-        make raspberrypi4_64_defconfig
-        
-        # 🌟 最小限のデスクトップ環境と必要なツール群を過不足なく指定
-        {
-          echo "BR2_PACKAGE_XORG7=y"
-          echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y"
-          echo "BR2_PACKAGE_XAPP_TWM=y"
-          echo "BR2_PACKAGE_ZENITY=y"
-          echo "BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y"
-          echo "BR2_PACKAGE_BASH=y"
-          echo "BR2_PACKAGE_WGET=y"
-          echo "BR2_PACKAGE_CURL=y"
-          echo "BR2_PACKAGE_XZ=y"
-          echo "BR2_PACKAGE_UTIL_LINUX=y"
-          echo "BR2_PACKAGE_UTIL_LINUX_BINARIES=y"
-          echo "BR2_TARGET_GENERIC_ROOT_PASSWD=\"\""
-          echo "BR2_TARGET_GENERIC_GETTY_PORT=\"tty1\""
-        } >> .config
-        
-        make olddefconfig
-
-    - name: Inject Custom Boot Script
+    - name: Inject Custom Boot UI and Scripts
       run: |
         chmod +x setup.sh
-        ./setup.sh ./buildroot
+        ./setup.sh ./deploy
 
-    - name: Compile Custom OS
+    - name: Create Flashable Zip
       run: |
-        cd buildroot
-        # 依存エラーを防ぐため、安全に並列ビルドを実行
-        make -j$(nproc)
+        cd deploy
+        # Chromebookのリカバリーユーティリティでそのまま焼けるZIP形式に圧縮
+        zip -r ../alpine-rpi5-installer.zip ./*
 
-    - name: Upload Custom Boot Image
+    - name: Upload Installer Package
       uses: actions/upload-artifact@v4
       with:
-        name: phase2-pure-installer
-        path: buildroot/output/images/sdcard.img
+        name: phase2-alpine-installer
+        path: alpine-rpi5-installer.zip
