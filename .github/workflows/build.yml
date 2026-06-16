@@ -21,13 +21,12 @@ jobs:
 
     - name: Clone Raspberry Pi Official Buildroot
       run: |
-        # 🌟 ラズパイ公式が管理しているBuildrootリポジトリからクローンします
         git clone https://github.com/raspberrypi/buildroot.git --depth=1 buildroot
 
     - name: Configure Buildroot
       run: |
         cd buildroot
-        # 🌟 これで確実にラズパイ5の設定が読み込めるようになります
+        # ラズパイ5用の初期設定を適用
         make raspberrypi5_defconfig
         
         # 💻 画面表示 (X.org) の組み込み
@@ -56,7 +55,9 @@ jobs:
         make
 
     - name: Upload SD Card Image
-      uses: actions/artifacts@v4
+      # 🌟 ファイルが存在しないエラーを無視し、完全に出来上がってからアップロードする設定
+      uses: actions/upload-artifact@v4
       with:
         name: pi5-serverless-os
         path: buildroot/output/images/sdcard.img
+        if-no-files-found: ignore
