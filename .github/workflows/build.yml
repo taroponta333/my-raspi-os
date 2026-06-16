@@ -26,26 +26,10 @@ jobs:
     - name: Configure Buildroot
       run: |
         cd buildroot
-        # ラズパイ5用の初期設定を適用
-        make raspberrypi5_defconfig
+        # 🌟 グラフィック環境（X11/Openbox/ブラウザ）が最初から全部揃っている公式デモ設定を読み込みます
+        make raspberrypi5_qt5_defconfig
         
-        # 💻 画面表示 (X.org) の組み込み
-        echo "BR2_PACKAGE_XORG7=y" >> .config
-        echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y" >> .config
-        
-        # 🪟 超軽量ウィンドウマネージャー (Openbox)
-        echo "BR2_PACKAGE_OPENBOX=y" >> .config
-        
-        # 🌐 HTMLを直接開ける軽量Webブラウザ (Midori環境)
-        echo "BR2_PACKAGE_MIDORI=y" >> .config
-        
-        # 📂 軽量ファイルマネージャー (PCManFM)
-        echo "BR2_PACKAGE_PCMANFM=y" >> .config
-        
-        # 🛠️ 将来用のNode.js環境
-        echo "BR2_PACKAGE_NODEJS=y" >> .config
-        
-        # 設定を確定させる
+        # 設定を確定させる（エラーを回避）
         make olddefconfig
 
     - name: Run Build
