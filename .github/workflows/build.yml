@@ -1,4 +1,4 @@
-name: Phase2 - Alpine Ultra-Lightweight Installer Builder
+name: Phase2 - Alpine Clean Image Builder
 
 on:
   push:
@@ -6,33 +6,45 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-alpine-installer:
+  build-alpine-image:
     runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download Alpine Linux for RPi (aarch64)
+    - name: Install Image Creation Tools
       run: |
-        mkdir -p deploy
-        # ラズパイ5に対応した最新の超軽量Alpine Linuxのパッケージを取得
+        sudo apt-get update
+        sudo apt-get install -y dosfstools mtools zip wget
+
+    - name: Download Alpine Linux for RPi
+      run: |
+        mkdir -p alpine_files
         wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-rpi-3.20.0-aarch64.tar.gz
-        tar -xf alpine-rpi-3.20.0-aarch64.tar.gz -C deploy
+        tar -xf alpine-rpi-3.20.0-aarch64.tar.gz -C alpine_files
 
     - name: Inject Custom Boot UI and Scripts
       run: |
         chmod +x setup.sh
-        ./setup.sh ./deploy
+        ./setup.sh ./alpine_files
 
-    - name: Create Flashable Zip
+    - name: Generate Pure SD Image
       run: |
-        cd deploy
-        # Chromebookのリカバリーユーティリティでそのまま焼けるZIP形式に圧縮
-        zip -r ../alpine-rpi5-installer.zip ./*
+        # 🫙 200MBの完全に真っさらな仮想ディスク(イメージ)を作成
+        dd if=/dev/zero of=alpine-installer.img bs=1M count=200
+        
+        # 🧼 ディスクをクリーンなFAT32形式でフォーマット
+        mkfs.vfat -F 32 alpine-installer.img
+        
+        # 📂 Alpineのファイル群を、イメージの「中」にダイレクトに全コピー
+        mcopy -i alpine-installer.img -s alpine_files/* ::/
+        
+        # 📦 Chromebookで焼きやすいようにZIPに圧縮
+        zip alpine-final-installer.zip alpine-pure-installer.img
 
     - name: Upload Installer Package
       uses: actions/upload-artifact@v4
       with:
-        name: phase2-alpine-installer
-        path: alpine-rpi5-installer.zip
+        name: phase2-clean-image
+        path: alpine-final-installer.zip
