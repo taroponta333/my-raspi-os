@@ -1,40 +1,48 @@
 #!/bin/bash
 # ---------------------------------------------------------
-# Phase 2: Alpine Linux ベース 超軽量インストーラー生成スクリプト
+# Phase 2: Alpine Linux 自動設定オーバーレイ（apkovl）生成版
 # ---------------------------------------------------------
 
 DEPLOY_DIR=$1
 
-echo "=== Alpine Linux への強制GUIインストーラー注入を開始 ==="
+echo "=== Alpine Linux 向け自動設定ファイルの生成を開始 ==="
 
-# 📁 起動時に実行するオーバーレイ領域（apkovl）を擬似的に作成
-mkdir -p "$DEPLOY_DIR/root"
-mkdir -p "$DEPLOY_DIR/etc/local.d"
+# 📁 一時的な設定配置フォルダを作成
+STAGE_DIR=$(mktemp -d)
+mkdir -p "$STAGE_DIR/etc/init.d"
+mkdir -p "$STAGE_DIR/tmp"
 
-# 🌟 1. 起動した瞬間にログイン画面を無視してGUIを立ち上げる命令
-cat << 'EOF' > "$DEPLOY_DIR/etc/local.d/custom_installer.start"
-#!/bin/sh
-echo "Initializing Custom GUI Installer..."
+# 🌟 1. ログイン画面を完全に消し去る大元の設定 (inittab)
+cat << 'EOF' > "$STAGE_DIR/etc/inittab"
+# /etc/inittab
+::sysinit:/etc/init.d/rcS
+::shutdown:/etc/init.d/rcK
 
-# 必要最低限のGUIツール（Xorg, Zenity, TWM）を裏で強制セットアップ
-apk update
-apk add bash zenity xorg-server xf86-video-fbdev twm wget xinit
-
-# 直接画面とUIスクリプトをroot権限のまま起動
-startx /tmp/installer_ui.sh -- :0 -nolisten tcp &
+# ログインを無視して、root権限で直接X11(画面)とインストーラーUIを起動
+tty1::respawn:/usr/bin/startx /tmp/installer_ui.sh -- :0 -nolisten tcp
 EOF
-chmod +x "$DEPLOY_DIR/etc/local.d/custom_installer.start"
 
-# 🌟 2. 【UIの本体】ラジオボタン ➔ チェックボックス ➔ ストリーミング改造システム
-cat << 'EOF' > "$DEPLOY_DIR/tmp/installer_ui.sh"
+# 🌟 2. 【UI本体】ラジオボタン ➔ チェックボックス ➔ ストリーミングシステム
+cat << 'EOF' > "$STAGE_DIR/tmp/installer_ui.sh"
 #!/bin/bash
 export DISPLAY=:0
 export HOME=/root
+
+# 🌐 ネットワークを強制起動
+rc-service networking start 2>/dev/null
+udhcpc -i eth0 2>/dev/null
+udhcpc -i wlan0 2>/dev/null
+
+# 📦 画面に必要な最小限のパッケージをその場で高速セットアップ
+apk update
+apk add bash zenity xorg-server xf86-video-fbdev twm wget xinit unxz
+
+# 軽量ウィンドウマネージャーを起動
 twm &
 
 # 🔘 [ステップ1] OSモードの選択
 OS_MODE=$(zenity --list --radiolist \
-  --title="Phase 2: 自作OSインストーラー (Alpine)" \
+  --title="Phase 2: 自作OSインストーラー" \
   --text="インストールする本番OSのモードを選択してください。" \
   --column="選択" --column="OSモード" --column="説明" \
   TRUE "Perfect-OS" "自作SNSとTurboWarpを左右2画面分割で爆速起動" \
@@ -42,7 +50,7 @@ OS_MODE=$(zenity --list --radiolist \
   FALSE "Official-Full" "公式のフル版デスクトップ（PIXEL環境）" \
   --width=550 --height=300)
 
-if [ -z "$OS_MODE" ]; then exit 1; fi
+if [ -z "$OS_MODE" ]; then reboot; exit 1; fi
 
 # ☑️ [ステップ2] アプリの追加
 APPS=$(zenity --list --checklist \
@@ -53,7 +61,7 @@ APPS=$(zenity --list --checklist \
   TRUE "VS Code" "WEBブラウザから叩ける高機能コードエディタ" \
   --width=550 --height=300)
 
-# 💾 [ステップ3] 焼き付け先ターゲットメディアの選択
+# 💾 [ステップ3] 焼き付け先メディアの選択
 WHERE_TO_SAVE=$(zenity --list \
   --title="Save Destination" \
   --text="完成したカスタムOSをどこにインストールしますか？" \
@@ -62,22 +70,20 @@ WHERE_TO_SAVE=$(zenity --list \
   "2" "外付けのUSBメモリ" "ラズパイに挿してある外付けUSBメモリを丸ごと自作OS化します" \
   --width=550 --height=250)
 
-if [ -z "$WHERE_TO_SAVE" ]; then exit 1; fi
+if [ -z "$WHERE_TO_SAVE" ]; then reboot; exit 1; fi
 
-# 🌐 [ステップ4] ストリーミングハック
+# 🌐 [ステップ4] ストリーミング書き込み
 (
-  echo "# 1/2 ターゲットメディアをフォーマット中..."
   if [ "$WHERE_TO_SAVE" = "1" ]; then
     TARGET_DEV="/dev/mmcblk0"
   else
     TARGET_DEV="/dev/sda"
   fi
 
-  echo "# 2/2 ラズパイ公式からOSをストリーミング中 ＆ 魔改造データを直接書き込み中..."
-  # 公式OSを引っ張りながらそのままddで書き込む（セキュリティの影響は100%受けません）
+  echo "# ラズパイ公式からOSをストリーミング中 ＆ 魔改造データを直接書き込み中..."
   wget -O - https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz | unxz | dd of=$TARGET_DEV bs=4M
   
-  # 本番OSの自動起動ファイルなどの最終加工
+  # 本番OSへの設定注入
   mkdir -p /mnt/target
   mount "${TARGET_DEV}p1" /mnt/target 2>/dev/null || mount "${TARGET_DEV}1" /mnt/target 2>/dev/null
   echo "root:\$6\$nS1Xg2MhV4YfP0S6\$S1Nmsv9hY2pZ8vFExHlNz6WjU0BvxmK3bY9t5z7.H8D8K7sR1g8H0Wf0xZ3Wf8U6Z1h9y6XwR1i5K7vN3M5hG/" > /mnt/target/userconf.txt
@@ -93,10 +99,11 @@ if [ -z "$WHERE_TO_SAVE" ]; then exit 1; fi
 zenity --info --text="✨ カスタムOSの書き換えが完了しました！ ✨\n自動的に再起動します。"
 reboot
 EOF
-chmod +x "$DEPLOY_DIR/tmp/installer_ui.sh"
+chmod +x "$STAGE_DIR/tmp/installer_ui.sh"
 
-# 🌟 Alpine Linuxの起動設定（config.txt）をラズパイ5向けに微調整
-echo "arm_64bit=1" >> "$DEPLOY_DIR/config.txt"
-echo "enable_uart=1" >> "$DEPLOY_DIR/config.txt"
+# 📦 変更した設定ファイルをAlpineが認識する特別な圧縮形式「.apkovl」にまとめる
+cd "$STAGE_DIR"
+tar -czf "$DEPLOY_DIR/localhost.apkovl.tar.gz" ./*
+rm -rf "$STAGE_DIR"
 
-echo "=== Alpineベースのカスタムインストーラー配置が完了しました ==="
+echo "=== localhost.apkovl.tar.gz の自動生成が完了しました ==/
