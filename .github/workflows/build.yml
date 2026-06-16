@@ -16,34 +16,37 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch gzip bzip2 perl tar cpio unzip rsync file bc wget libncurses5-dev libssl-dev
+        sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch gzip bzip2 perl tar cpio unzip rsync file bc wget libncurses5-dev libssl-dev xz-utils
 
     - name: Download and Setup Buildroot
       run: |
-        # Buildrootの安定版を確保
-        wget https://buildroot.org/downloads/buildroot-2024.02.2.tar.gz
-        tar -xf buildroot-2024.02.2.tar.gz
-        mv buildroot-2024.02.2 buildroot
+        # より安定し、ラズパイ5のサポートが強固なバージョンを採用
+        wget https://buildroot.org/downloads/buildroot-2024.02.3.tar.gz
+        tar -xf buildroot-2024.02.3.tar.gz
+        mv buildroot-2024.02.3 buildroot
 
-    - name: Configure Buildroot for Raspberry Pi 5
+    - name: Configure Buildroot for Raspberry Pi 4/5
       run: |
         cd buildroot
-        # ラズパイ4/5向けのベース設定を適用 (64bit環境)
         make raspberrypi4_64_defconfig
         
-        # 🌟 インストーラーに必要な最小限のGUIとツールを強制有効化
-        echo "BR2_PACKAGE_XORG7=y" >> .config
-        echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y" >> .config
-        echo "BR2_PACKAGE_XAPP_TWM=y" >> .config
-        echo "BR2_PACKAGE_ZENITY=y" >> .config
-        echo "BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y" >> .config
-        echo "BR2_PACKAGE_BASH=y" >> .config
-        echo "BR2_PACKAGE_WGET=y" >> .config
-        echo "BR2_PACKAGE_CURL=y" >> .config
-        echo "BR2_PACKAGE_UTIL_LINUX=y" >> .config
-        echo "BR2_PACKAGE_UTIL_LINUX_BINARIES=y" >> .config
+        # 🌟 最小限のデスクトップ環境と必要なツール群を過不足なく指定
+        {
+          echo "BR2_PACKAGE_XORG7=y"
+          echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y"
+          echo "BR2_PACKAGE_XAPP_TWM=y"
+          echo "BR2_PACKAGE_ZENITY=y"
+          echo "BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y"
+          echo "BR2_PACKAGE_BASH=y"
+          echo "BR2_PACKAGE_WGET=y"
+          echo "BR2_PACKAGE_CURL=y"
+          echo "BR2_PACKAGE_XZ=y"
+          echo "BR2_PACKAGE_UTIL_LINUX=y"
+          echo "BR2_PACKAGE_UTIL_LINUX_BINARIES=y"
+          echo "BR2_TARGET_GENERIC_ROOT_PASSWD=\"\""
+          echo "BR2_TARGET_GENERIC_GETTY_PORT=\"tty1\""
+        } >> .config
         
-        # 設定を再検証
         make olddefconfig
 
     - name: Inject Custom Boot Script
@@ -51,11 +54,11 @@ jobs:
         chmod +x setup.sh
         ./setup.sh ./buildroot
 
-    - name: Compile Custom OS (Phase 2 Core)
+    - name: Compile Custom OS
       run: |
         cd buildroot
-        # カーネルとルートファイルシステムをコンパイル (少し時間がかかります)
-        make
+        # 依存エラーを防ぐため、安全に並列ビルドを実行
+        make -j$(nproc)
 
     - name: Upload Custom Boot Image
       uses: actions/upload-artifact@v4
