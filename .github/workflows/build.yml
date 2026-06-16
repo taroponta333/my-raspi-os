@@ -1,9 +1,9 @@
-name: Build My Custom Pi 5 OS (Serverless)
+name: Build My Custom Pi 5 OS (Pi-Gen)
 
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # 手動でビルドを開始するボタン
+  workflow_dispatch: # 手動ビルドボタン
 
 jobs:
   build:
@@ -16,31 +16,35 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
-        sudo apt install -y build-essential libncurses-dev rsync git bc \
-          cpio unzip python3 m4 wget ca-certificates
+        sudo apt install -y coreutils quilt parted qemu-user-static debootstrap zero-free cxxtest
 
-    - name: Clone Raspberry Pi Official Buildroot
+    - name: Clone pi-gen (Raspberry Pi OS Builder)
       run: |
-        git clone https://github.com/raspberrypi/buildroot.git --depth=1 buildroot
+        git clone https://github.com/RPi-Distro/pi-gen.git --depth=1 pi-gen
 
-    - name: Configure Buildroot
+    - name: Configure custom OS
       run: |
-        cd buildroot
-        # 🌟 グラフィック環境（X11/Openbox/ブラウザ）が最初から全部揃っている公式デモ設定を読み込みます
-        make raspberrypi5_qt5_defconfig
+        cd pi-gen
+        # ラズパイ5用の設定を作成
+        echo "IMG_NAME='Custom-Pi5-OS'" > config
         
-        # 設定を確定させる（エラーを回避）
-        make olddefconfig
+        # 🌟 ここがポイント：ムダなアプリ（LibreOfficeなど）を省き、
+        # 最低限のデスクトップ画面とブラウザ、ファイルマネージャーだけを入れる指示
+        echo "STAGE_LIST='stage0 stage1 stage2'" >> config
+        
+        # 不要な標準ゲームやオフィスソフトのインストールをスキップして軽量化
+        touch stage2/SKIP_IMAGES
 
-    - name: Run Build
+    - name: Run Build (pi-gen)
       run: |
-        cd buildroot
-        # コンパイルを実行
-        make
+        cd pi-gen
+        # 管理者権限で安全にビルドを実行
+        sudo ./build.sh
 
     - name: Upload SD Card Image
       uses: actions/upload-artifact@v4
       with:
-        name: pi5-serverless-os
-        path: buildroot/output/images/sdcard.img
+        name: pi5-custom-os
+        # 生成されたZIP形式のSDカードイメージを指定
+        path: pi-gen/deploy/*.zip
         if-no-files-found: ignore
