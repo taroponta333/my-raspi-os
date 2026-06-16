@@ -36,8 +36,8 @@ jobs:
         # 🪟 超軽量ウィンドウマネージャー (Openbox)
         echo "BR2_PACKAGE_OPENBOX=y" >> .config
         
-        # 🌐 ブラウザ (Chromium) の組み込み
-        echo "BR2_PACKAGE_CHROMIUM=y" >> .config
+        # 🌐 正しいブラウザ (Chromium) の組み込み設定
+        echo "BR2_PACKAGE_CHROMIUM_BROWSER=y" >> .config
         
         # 📂 軽量ファイルマネージャー (PCManFM)
         echo "BR2_PACKAGE_PCMANFM=y" >> .config
