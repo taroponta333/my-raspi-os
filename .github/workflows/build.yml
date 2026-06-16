@@ -1,4 +1,4 @@
-name: Custom RPi5 Mod OS Builder
+name: Phase2 - Custom Minimal Boot Installer Builder
 
 on:
   push:
@@ -6,35 +6,59 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-os:
-    runs-on: ubuntu-latest
+  build-custom-boot:
+    runs-on: ubuntu-22.04
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download Base OS
+    - name: Install Build Dependencies
       run: |
-        sudo apt update && sudo apt install -y wget unzip kpartx
-        wget -O raspios.img.xz https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz
-        xz -d raspios.img.xz
+        sudo apt-get update
+        sudo apt-get install -y sed make binutils build-essential gcc g++ bash patch gzip bzip2 perl tar cpio unzip rsync file bc wget libncurses5-dev libssl-dev
 
-    - name: Inject Custom Script (setup.sh)
+    - name: Download and Setup Buildroot
       run: |
-        sudo losetup -P -f raspios.img
-        LOOP_DEV=$(sudo losetup -a | grep "raspios.img" | awk -F: '{print $1}' | head -n 1)
+        # Buildrootの安定版を確保
+        wget https://buildroot.org/downloads/buildroot-2024.02.2.tar.gz
+        tar -xf buildroot-2024.02.2.tar.gz
+        mv buildroot-2024.02.2 buildroot
+
+    - name: Configure Buildroot for Raspberry Pi 5
+      run: |
+        cd buildroot
+        # ラズパイ4/5向けのベース設定を適用 (64bit環境)
+        make raspberrypi4_64_defconfig
         
-        sudo mkdir -p /mnt/rootfs
-        sudo mount ${LOOP_DEV}p2 /mnt/rootfs
+        # 🌟 インストーラーに必要な最小限のGUIとツールを強制有効化
+        echo "BR2_PACKAGE_XORG7=y" >> .config
+        echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y" >> .config
+        echo "BR2_PACKAGE_XAPP_TWM=y" >> .config
+        echo "BR2_PACKAGE_ZENITY=y" >> .config
+        echo "BR2_PACKAGE_BUSYBOX_SHOW_OTHERS=y" >> .config
+        echo "BR2_PACKAGE_BASH=y" >> .config
+        echo "BR2_PACKAGE_WGET=y" >> .config
+        echo "BR2_PACKAGE_CURL=y" >> .config
+        echo "BR2_PACKAGE_UTIL_LINUX=y" >> .config
+        echo "BR2_PACKAGE_UTIL_LINUX_BINARIES=y" >> .config
+        
+        # 設定を再検証
+        make olddefconfig
 
+    - name: Inject Custom Boot Script
+      run: |
         chmod +x setup.sh
-        ./setup.sh /mnt/rootfs
+        ./setup.sh ./buildroot
 
-        sudo umount /mnt/rootfs
-        sudo losetup -d ${LOOP_DEV}
+    - name: Compile Custom OS (Phase 2 Core)
+      run: |
+        cd buildroot
+        # カーネルとルートファイルシステムをコンパイル (少し時間がかかります)
+        make
 
-    - name: Upload Image
+    - name: Upload Custom Boot Image
       uses: actions/upload-artifact@v4
       with:
-        name: pi5-mod-os
-        path: raspios.img
+        name: phase2-pure-installer
+        path: buildroot/output/images/sdcard.img
