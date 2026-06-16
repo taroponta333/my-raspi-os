@@ -16,18 +16,18 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
-        # 🌟 必要最小限のビルドツールだけを確実にインストール
         sudo apt install -y build-essential libncurses-dev rsync git bc \
           cpio unzip python3 m4 wget ca-certificates
 
-    - name: Clone Buildroot
+    - name: Clone Raspberry Pi Official Buildroot
       run: |
-        git clone https://git.buildroot.net/buildroot --depth=1 buildroot
+        # 🌟 ラズパイ公式が管理しているBuildrootリポジトリからクローンします
+        git clone https://github.com/raspberrypi/buildroot.git --depth=1 buildroot
 
     - name: Configure Buildroot
       run: |
         cd buildroot
-        # ラズパイ5用の初期設定を適用
+        # 🌟 これで確実にラズパイ5の設定が読み込めるようになります
         make raspberrypi5_defconfig
         
         # 💻 画面表示 (X.org) の組み込み
@@ -52,7 +52,7 @@ jobs:
     - name: Run Build
       run: |
         cd buildroot
-        # クラウドの全パワーを使ってコンパイルを実行
+        # コンパイルを実行
         make
 
     - name: Upload SD Card Image
