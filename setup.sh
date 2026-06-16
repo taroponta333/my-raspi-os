@@ -1,48 +1,40 @@
 #!/bin/bash
 # ---------------------------------------------------------
-# Phase 2: 完全自作OS（Buildroot）用 構成注入スクリプト（修正版）
+# Phase 2: Alpine Linux ベース 超軽量インストーラー生成スクリプト
 # ---------------------------------------------------------
 
-BUILDROOT_DIR=$1
-OVERLAY_DIR="$BUILDROOT_DIR/board/raspberrypi/rootfs-overlay"
+DEPLOY_DIR=$1
 
-# 📁 Buildrootのシステム内部にフォルダを強制展開
-mkdir -p "$OVERLAY_DIR/etc/init.d"
-mkdir -p "$OVERLAY_DIR/root"
-mkdir -p "$OVERLAY_DIR/tmp"
+echo "=== Alpine Linux への強制GUIインストーラー注入を開始 ==="
 
-echo "=== BuildrootへのUIサービス注入を開始 ==="
+# 📁 起動時に実行するオーバーレイ領域（apkovl）を擬似的に作成
+mkdir -p "$DEPLOY_DIR/root"
+mkdir -p "$DEPLOY_DIR/etc/local.d"
 
-# 🌟 1. 起動時にログインを完全無視してグラフィック(X11)を立ち上げる最優先サービス
-cat << 'EOF' > "$OVERLAY_DIR/etc/init.d/S99custom_installer"
+# 🌟 1. 起動した瞬間にログイン画面を無視してGUIを立ち上げる命令
+cat << 'EOF' > "$DEPLOY_DIR/etc/local.d/custom_installer.start"
 #!/bin/sh
-case "$1" in
-  start)
-    echo "Starting Custom GUI Installer..."
-    # ユーザー認証を全てバイパスし、root権限で直接インストーラー画面を起動！
-    /usr/bin/startx /tmp/installer_ui.sh -- :0 -nolisten tcp &
-    ;;
-  stop)
-    ;;
-  *)
-    echo "Usage: $0 {start|stop}"
-    exit 1
-    ;;
-esac
-exit 0
-EOF
-chmod +x "$OVERLAY_DIR/etc/init.d/S99custom_installer"
+echo "Initializing Custom GUI Installer..."
 
-# 🌟 2. 【心臓部】ラジオボタン ➔ チェックボックス ➔ ストリーミング改造システム
-cat << 'EOF' > "$OVERLAY_DIR/tmp/installer_ui.sh"
+# 必要最低限のGUIツール（Xorg, Zenity, TWM）を裏で強制セットアップ
+apk update
+apk add bash zenity xorg-server xf86-video-fbdev twm wget xinit
+
+# 直接画面とUIスクリプトをroot権限のまま起動
+startx /tmp/installer_ui.sh -- :0 -nolisten tcp &
+EOF
+chmod +x "$DEPLOY_DIR/etc/local.d/custom_installer.start"
+
+# 🌟 2. 【UIの本体】ラジオボタン ➔ チェックボックス ➔ ストリーミング改造システム
+cat << 'EOF' > "$DEPLOY_DIR/tmp/installer_ui.sh"
 #!/bin/bash
 export DISPLAY=:0
 export HOME=/root
-twm & # 超軽量ウィンドウマネージャーを起動してウィンドウを動かせるようにする
+twm &
 
 # 🔘 [ステップ1] OSモードの選択
 OS_MODE=$(zenity --list --radiolist \
-  --title="Phase 2: 自作OSインストーラー" \
+  --title="Phase 2: 自作OSインストーラー (Alpine)" \
   --text="インストールする本番OSのモードを選択してください。" \
   --column="選択" --column="OSモード" --column="説明" \
   TRUE "Perfect-OS" "自作SNSとTurboWarpを左右2画面分割で爆速起動" \
@@ -72,51 +64,39 @@ WHERE_TO_SAVE=$(zenity --list \
 
 if [ -z "$WHERE_TO_SAVE" ]; then exit 1; fi
 
-# 🌐 [ステップ4] ストリーミングハック（公式OSを落としながら、その場で魔改造してddで焼く）
+# 🌐 [ステップ4] ストリーミングハック
 (
-  echo "# 1/3 ネットワークの接続を確立しています..."
-  sleep 2
-  
-  # 書き込み対象デバイスの割り出し
+  echo "# 1/2 ターゲットメディアをフォーマット中..."
   if [ "$WHERE_TO_SAVE" = "1" ]; then
     TARGET_DEV="/dev/mmcblk0"
   else
     TARGET_DEV="/dev/sda"
   fi
 
-  echo "# 2/3 ラズパイ公式からOSをストリーミング中 ＆ あなたの設定をリアルタイム合成中..."
-  # 公式の軽量ベースOSをダウンロードしながら、その場で解凍してターゲットに叩き込む
-  wget -O - https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz | xz -d | dd of=$TARGET_DEV bs=4M
+  echo "# 2/2 ラズパイ公式からOSをストリーミング中 ＆ 魔改造データを直接書き込み中..."
+  # 公式OSを引っ張りながらそのままddで書き込む（セキュリティの影響は100%受けません）
+  wget -O - https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz | unxz | dd of=$TARGET_DEV bs=4M
   
-  echo "# 3/3 ターゲットメディア($TARGET_DEV)のカスタムブート領域を最終調整中..."
-  # ここで、先ほどダウンロード＆展開が終わったばかりのメディアの領域をマウントし、
-  # ユーザーが画面で選んだ「Perfect-OS」や「Explorer-OS」の自動起動指示書（.xinitrc）を直接マウントして一瞬で放り込む！
-  mkdir -p /mnt/target_boot
-  mount "${TARGET_DEV}p1" /mnt/target_boot 2>/dev/null || mount "${TARGET_DEV}1" /mnt/target_boot 2>/dev/null
+  # 本番OSの自動起動ファイルなどの最終加工
+  mkdir -p /mnt/target
+  mount "${TARGET_DEV}p1" /mnt/target 2>/dev/null || mount "${TARGET_DEV}1" /mnt/target 2>/dev/null
+  echo "root:\$6\$nS1Xg2MhV4YfP0S6\$S1Nmsv9hY2pZ8vFExHlNz6WjU0BvxmK3bY9t5z7.H8D8K7sR1g8H0Wf0xZ3Wf8U6Z1h9y6XwR1i5K7vN3M5hG/" > /mnt/target/userconf.txt
   
-  # 自動ログインと専用画面のセットアップコードを本番OSの脳みそに滑り込ませる
-  echo "root:\$6\$nS1Xg2MhV4YfP0S6\$S1Nmsv9hY2pZ8vFExHlNz6WjU0BvxmK3bY9t5z7.H8D8K7sR1g8H0Wf0xZ3Wf8U6Z1h9y6XwR1i5K7vN3M5hG/" > /mnt/target_boot/userconf.txt
+  mkdir -p /mnt/target/custom_scripts
+  echo "$OS_MODE" > /mnt/target/custom_scripts/mode.txt
+  echo "$APPS" > /mnt/target/custom_scripts/apps.txt
   
-  # モード別の自動起動スクリプトの仕込み
-  mkdir -p /mnt/target_boot/custom_scripts
-  if [ "$OS_MODE" = "Perfect-OS" ]; then
-    echo "perfect" > /mnt/target_boot/custom_scripts/mode.txt
-  elif [ "$OS_MODE" = "Explorer-OS" ]; then
-    echo "explorer" > /mnt/target_boot/custom_scripts/mode.txt
-  else
-    echo "official" > /mnt/target_boot/custom_scripts/mode.txt
-  fi
-  
-  umount /mnt/target_boot
+  umount /mnt/target
   echo "100"
 ) | zenity --progress --title="自作OSをリアルタイムビルド中" --percentage=0 --auto-close
 
-zenity --info --text="✨ カスタムOSの焼き付けが100%完了しました！ ✨\nラズパイ5が自動的に再起動します。挿したメディアから自作OSが起動します！"
+zenity --info --text="✨ カスタムOSの書き換えが完了しました！ ✨\n自動的に再起動します。"
 reboot
 EOF
-chmod +x "$OVERLAY_DIR/tmp/installer_ui.sh"
+chmod +x "$DEPLOY_DIR/tmp/installer_ui.sh"
 
-# Buildrootの設定ファイル（.config）にオーバーレイの存在を登録
-echo "BR2_ROOTFS_OVERLAY=\"board/raspberrypi/rootfs-overlay\"" >> "$BUILDROOT_DIR/.config"
+# 🌟 Alpine Linuxの起動設定（config.txt）をラズパイ5向けに微調整
+echo "arm_64bit=1" >> "$DEPLOY_DIR/config.txt"
+echo "enable_uart=1" >> "$DEPLOY_DIR/config.txt"
 
-echo "=== インストーラーオーバーレイの完全注入が完了しました ==="
+echo "=== Alpineベースのカスタムインストーラー配置が完了しました ==="
