@@ -32,13 +32,13 @@ jobs:
     - name: Generate Pure SD Image
       run: |
         # 🫙 200MBの完全に真っさらな仮想ディスク(イメージ)を作成
-        dd if=/dev/zero of=alpine-installer.img bs=1M count=200
+        dd if=/dev/zero of=alpine-pure-installer.img bs=1M count=200
         
         # 🧼 ディスクをクリーンなFAT32形式でフォーマット
-        mkfs.vfat -F 32 alpine-installer.img
+        mkfs.vfat -F 32 alpine-pure-installer.img
         
         # 📂 Alpineのファイル群を、イメージの「中」にダイレクトに全コピー
-        mcopy -i alpine-installer.img -s alpine_files/* ::/
+        mcopy -i alpine-pure-installer.img -s alpine_files/* ::/
         
         # 📦 Chromebookで焼きやすいようにZIPに圧縮
         zip alpine-final-installer.zip alpine-pure-installer.img
