@@ -1,0 +1,61 @@
+name: Build My Custom Pi 5 OS (Serverless)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # 手動でビルドを開始するボタン
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y build-essential libncurses-dev rsync git bc \
+          cpio unzip python3 m4 wget ca-certificates safe-rm
+
+    - name: Clone Buildroot
+      run: |
+        git clone https://git.buildroot.net/buildroot --depth=1 buildroot
+
+    - name: Configure Buildroot
+      run: |
+        cd buildroot
+        # 🌟 ラズパイ5用の初期設定を適用
+        make raspberrypi5_defconfig
+        
+        # 💻 画面表示 (X.org) の組み込み
+        echo "BR2_PACKAGE_XORG7=y" >> .config
+        echo "BR2_PACKAGE_XSERVER_XORG_SERVER=y" >> .config
+        
+        # 🪟 超軽量ウィンドウマネージャー (Openbox)
+        echo "BR2_PACKAGE_OPENBOX=y" >> .config
+        
+        # 🌐 ブラウザ (Chromium) の組み込み
+        echo "BR2_PACKAGE_CHROMIUM=y" >> .config
+        
+        # 📂 軽量ファイルマネージャー (PCManFM)
+        echo "BR2_PACKAGE_PCMANFM=y" >> .config
+        
+        # 🛠️ 将来用のNode.js環境
+        echo "BR2_PACKAGE_NODEJS=y" >> .config
+        
+        # 設定を確定させる
+        make olddefconfig
+
+    - name: Run Build
+      run: |
+        cd buildroot
+        # クラウドの全パワーを使ってコンパイルを実行
+        make
+
+    - name: Upload SD Card Image
+      uses: actions/artifacts@v4
+      with:
+        name: pi5-serverless-os
+        path: buildroot/output/images/sdcard.img
