@@ -1,4 +1,4 @@
-name: Custom RPi5 Smart Explorer OS
+name: Build RPi5 Triple-Boot Custom Installer
 
 on:
   push:
@@ -6,36 +6,89 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-os:
+  build-triple-os:
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Download Official Raspberry Pi OS
+    - name: Download Raspberry Pi OS (Full & Lite)
       run: |
-        sudo apt update && sudo apt install -y wget unzip kpartx
-        wget -O raspios.img.xz https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz
-        xz -d raspios.img.xz
-
-    - name: Inject Custom Script (setup.sh)
-      run: |
-        sudo losetup -P -f raspios.img
-        LOOP_DEV=$(sudo losetup -a | grep "raspios.img" | awk -F: '{print $1}' | head -n 1)
+        sudo apt update && sudo apt install -y wget unzip kpartx parted
         
-        sudo mkdir -p /mnt/rootfs
-        sudo mount ${LOOP_DEV}p2 /mnt/rootfs
+        # 🌟 1. 公式64bit フル版のダウンロード
+        echo "Downloading 64bit Full Desktop OS..."
+        wget -O raspios_full.img.xz https://downloads.raspberrypi.com/raspios_desktop_arm64/images/raspios_desktop_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-desktop.img.xz
+        xz -d raspios_full.img.xz
 
-        # 外部スクリプトの実行
+        # 🌟 2. 自作OSたちのベースとなるライト版のダウンロード
+        echo "Downloading Lite OS base..."
+        wget -O raspios_lite.img.xz https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-11-19/2024-11-19-raspios-bookworm-arm64-lite.img.xz
+        xz -d raspios_lite.img.xz
+
+    - name: Create Explorer and Perfect Sub-Images
+      run: |
+        # ライト版のイメージを複製して2つ（Explorer用、Perfect用）用意する
+        cp raspios_lite.img raspios_explorer.img
+        cp raspios_lite.img raspios_perfect.img
+
+        # 🛠️ Explorer用イメージにsetup.shを注入
+        sudo losetup -P -f raspios_explorer.img
+        DEV_EXP=$(sudo losetup -a | grep "raspios_explorer.img" | awk -F: '{print $1}' | head -n 1)
+        sudo mkdir -p /mnt/explorer
+        sudo mount ${DEV_EXP}p2 /mnt/explorer
         chmod +x setup.sh
-        ./setup.sh /mnt/rootfs
+        ./setup.sh /mnt/explorer
+        sudo umount /mnt/explorer
+        sudo losetup -d ${DEV_EXP}
 
-        sudo umount /mnt/rootfs
-        sudo losetup -d ${LOOP_DEV}
+        # 🛠️ Perfect用イメージにsetup.shを注入 ＋ モード切り替えトリガーを配置
+        sudo losetup -P -f raspios_perfect.img
+        DEV_PER=$(sudo losetup -a | grep "raspios_perfect.img" | awk -F: '{print $1}' | head -n 1)
+        sudo mkdir -p /mnt/perfect
+        sudo mount ${DEV_PER}p2 /mnt/perfect
+        ./setup.sh /mnt/perfect
+        # パーフェクトOSとして動かすための目印ファイルを配置
+        sudo touch /mnt/perfect/root/mode_perfect
+        sudo umount /mnt/perfect
+        sudo losetup -d ${DEV_PER}
 
-    - name: Upload Finished SD Card Image
+    - name: Package Multi-Boot Installer Media
+      run: |
+        echo "=== 3つのOS（Full、Explorer、Perfect）を統合した特大イメージを作成中 ==="
+        # 合計で約25GBの巨大な入れ物を作成
+        dd if=/dev/zero of=triple_boot_media.img bs=1M count=24000
+        
+        sudo parted -s triple_boot_media.img mklabel msdos
+        sudo parted -s triple_boot_media.img mkpart primary fat32 1MiB 1024MiB   # メニュー＆アプリ選択用
+        sudo parted -s triple_boot_media.img mkpart primary ext4 1024MiB 9000MiB # 1. 公式64bit Full用
+        sudo parted -s triple_boot_media.img mkpart primary ext4 9000MiB 16500MiB # 2. Explorer OS用
+        sudo parted -s triple_boot_media.img mkpart primary ext4 16500MiB 100%   # 3. Perfect OS用
+
+        # 仮想マウントとフォーマット
+        sudo losetup -P -f triple_boot_media.img
+        FINAL_DEV=$(sudo losetup -a | grep "triple_boot_media.img" | awk -F: '{print $1}' | head -n 1)
+        
+        sudo mkfs.vfat -F 32 ${FINAL_DEV}p1
+        sudo mkfs.ext4 -F ${FINAL_DEV}p2
+        sudo mkfs.ext4 -F ${FINAL_DEV}p3
+        sudo mkfs.ext4 -F ${FINAL_DEV}p4
+
+        # 🌟 起動メニュー（選択画面）の基本ファイルを配置
+        sudo mkdir -p /mnt/menu
+        sudo mount ${FINAL_DEV}p1 /mnt/menu
+        
+        # 初回アプリ選択用のテキストファイルを起動パーティションに用意しておく
+        echo "INSTALL_PYTHON=1" | sudo tee /mnt/menu/app_selection.txt
+        echo "INSTALL_VSCODE=1" | sudo tee -a /mnt/menu/app_selection.txt
+        echo "INSTALL_BROWSER=1" | sudo tee -a /mnt/menu/app_selection.txt
+
+        sudo umount /mnt/menu
+        sudo losetup -d ${FINAL_DEV}
+
+    - name: Upload Multi-OS Installer
       uses: actions/upload-artifact@v4
       with:
-        name: pi5-explorer-os
-        path: raspios.img
+        name: pi5-triple-boot-media
+        path: triple_boot_media.img
