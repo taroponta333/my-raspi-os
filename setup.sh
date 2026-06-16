@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------
-# Phase 2: Alpine Linux 自動設定オーバーレイ（apkovl）生成版
+# Phase 2: Alpine Linux 自動設定オーバーレイ（apkovl）修正完全版
 # ---------------------------------------------------------
 
 DEPLOY_DIR=$1
@@ -9,7 +9,7 @@ echo "=== Alpine Linux 向け自動設定ファイルの生成を開始 ==="
 
 # 📁 一時的な設定配置フォルダを作成
 STAGE_DIR=$(mktemp -d)
-mkdir -p "$STAGE_DIR/etc/init.d"
+mkdir -p "$STAGE_DIR/etc"
 mkdir -p "$STAGE_DIR/tmp"
 
 # 🌟 1. ログイン画面を完全に消し去る大元の設定 (inittab)
@@ -96,14 +96,14 @@ if [ -z "$WHERE_TO_SAVE" ]; then reboot; exit 1; fi
   echo "100"
 ) | zenity --progress --title="自作OSをリアルタイムビルド中" --percentage=0 --auto-close
 
-zenity --info --text="✨ カスタムOSの書き換えが完了しました！ ✨\n自動的に再起動します。"
+zenity --info --text="✨ カスタムOSの焼き付けが完了しました！ ✨\n自動的に再起動します。"
 reboot
 EOF
-chmod +x "$STAGE_DIR/tmp/installer_ui.sh"
 
-# 📦 変更した設定ファイルをAlpineが認識する特別な圧縮形式「.apkovl」にまとめる
-cd "$STAGE_DIR"
+# 📦 変更した設定ファイルをAlpineが認識する特別な圧縮形式「localhost.apkovl.tar.gz」にまとめる
+cd "$STAGE_DIR" || exit 1
 tar -czf "$DEPLOY_DIR/localhost.apkovl.tar.gz" ./*
+cd - || exit 1
 rm -rf "$STAGE_DIR"
 
-echo "=== localhost.apkovl.tar.gz の自動生成が完了しました ==/
+echo "=== localhost.apkovl.tar.gz の自動生成が完了しました ==="
