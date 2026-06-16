@@ -16,8 +16,9 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt update
+        # 🌟 必要最小限のビルドツールだけを確実にインストール
         sudo apt install -y build-essential libncurses-dev rsync git bc \
-          cpio unzip python3 m4 wget ca-certificates safe-rm
+          cpio unzip python3 m4 wget ca-certificates
 
     - name: Clone Buildroot
       run: |
@@ -26,7 +27,7 @@ jobs:
     - name: Configure Buildroot
       run: |
         cd buildroot
-        # 🌟 ラズパイ5用の初期設定を適用
+        # ラズパイ5用の初期設定を適用
         make raspberrypi5_defconfig
         
         # 💻 画面表示 (X.org) の組み込み
@@ -36,7 +37,7 @@ jobs:
         # 🪟 超軽量ウィンドウマネージャー (Openbox)
         echo "BR2_PACKAGE_OPENBOX=y" >> .config
         
-        # 🌐 正しいブラウザ (Chromium) の組み込み設定
+        # 🌐 ブラウザ (Chromium) の組み込み設定
         echo "BR2_PACKAGE_CHROMIUM_BROWSER=y" >> .config
         
         # 📂 軽量ファイルマネージャー (PCManFM)
