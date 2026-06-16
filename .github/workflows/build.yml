@@ -36,8 +36,8 @@ jobs:
         # 🪟 超軽量ウィンドウマネージャー (Openbox)
         echo "BR2_PACKAGE_OPENBOX=y" >> .config
         
-        # 🌐 ブラウザ (Chromium) の組み込み設定
-        echo "BR2_PACKAGE_CHROMIUM_BROWSER=y" >> .config
+        # 🌐 HTMLを直接開ける軽量Webブラウザ (Midori環境)
+        echo "BR2_PACKAGE_MIDORI=y" >> .config
         
         # 📂 軽量ファイルマネージャー (PCManFM)
         echo "BR2_PACKAGE_PCMANFM=y" >> .config
@@ -55,7 +55,6 @@ jobs:
         make
 
     - name: Upload SD Card Image
-      # 🌟 ファイルが存在しないエラーを無視し、完全に出来上がってからアップロードする設定
       uses: actions/upload-artifact@v4
       with:
         name: pi5-serverless-os
