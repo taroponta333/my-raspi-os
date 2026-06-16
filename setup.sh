@@ -1,6 +1,6 @@
 #!/bin/bash
 # ---------------------------------------------------------
-# 決定版：OS選択(ラジオボタン) ＋ アプリ選択(チェックボックス) UI搭載
+# 最終兵器：強制GUIインストーラーサービス自動注入スクリプト
 # ---------------------------------------------------------
 
 ROOTFS=$1
@@ -11,114 +11,115 @@ fi
 
 echo "=== カスタムOSの構成注入を開始します ==="
 
-# 📁 必要なフォルダを作成
+# 📁 必要なフォルダを強制作成
 sudo mkdir -p "$ROOTFS/root"
-sudo mkdir -p "$ROOTFS/etc/systemd/system/getty@tty1.service.d"
+sudo mkdir -p "$ROOTFS/etc/systemd/system"
 
-# 🌟 1. 自動ログイン(rootユーザー)の設定
-cat << 'EOF' | sudo tee "$ROOTFS/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+# 🌟 1. ラズパイの起動の親玉に「カスタムインストーラー」を最優先登録する
+cat << 'EOF' | sudo tee "$ROOTFS/etc/systemd/system/custom-installer.service"
+[Unit]
+Description=Forced GUI Custom Installer
+After=multi-user.target
+X-Overwrite=yes
+
 [Service]
-ExecStart=
-ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+Type=simple
+User=root
+WorkingDirectory=/root
+# ログインやセキュリティを全てすっ飛ばして、直接画面システムとUIスクリプトを強制起動
+ExecStart=/usr/bin/startx /tmp/installer_ui.sh -- :0 -nolisten tcp
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-# 🌟 2. ログイン直後に画面システム（X11）を自動起動するトリガー
-echo "if [ -z \"\$DISPLAY\" ] && [ \"\$(tty)\" = \"/dev/tty1\" ]; then startx; fi" | sudo tee -a "$ROOTFS/root/.bashrc"
+# systemdサービスを有効化するためのシンボリックリンクをビルド時に作成
+sudo ln -sf /etc/systemd/system/custom-installer.service "$ROOTFS/etc/systemd/system/multi-user.target.wants/custom-installer.service"
 
-# 🌟 3. インストーラーUIと変身機能（rc.local）
-cat << 'EOF' | sudo tee "$ROOTFS/etc/rc.local"
-#!/bin/sh -e
+# 🌟 2. インストーラーUIと変身・クローン機能のコア（本体）
+cat << 'EOF' | sudo tee "$ROOTFS/tmp/installer_ui.sh"
+#!/bin/bash
+export DISPLAY=:0
+export HOME=/root
+openbox &
 
-if [ -f /root/reinstall ] || [ ! -f /var/img_configured ]; then
-  rm -f /var/img_configured /root/reinstall
-  sleep 3
-  apt-get update
-  
-  # 必要な最小限のパーツを導入
-  apt-get install -y openbox xorg pcmanfm zenity wget curl -y
+# 先に最小限のUIツールが入っているか確認（入っていなければその場で即導入）
+if ! command -v zenity &> /dev/null; then
+  apt-get update && apt-get install -y zenity openbox xorg pcmanfm wget curl -y
+fi
 
-  # 🖥️ 2段階インストーラー画面を出すスクリプトを生成
-  cat << 'R_EOF' > /tmp/installer_ui.sh
-  #!/bin/bash
-  export DISPLAY=:0
-  openbox &
-  
-  # 🔘 【ステップ1】OSモードの選択（ラジオボタン ＝ 1つしか選べない！）
-  OS_MODE=$(zenity --list --radiolist \
-    --title="ステップ 1/2: OSモードの選択" \
-    --text="ベースとなるOSのモードを1つだけ選んでください。" \
-    --column="選択" --column="OSモード" --column="説明" \
-    TRUE "Perfect-OS" "起動時に自作SNSとTurboWarpを2画面分割で即起動" \
-    FALSE "Explorer-OS" "ファイルマネージャーが主役のシンプル開発画面" \
-    FALSE "Official-Full" "公式のフル版デスクトップ（PIXEL環境）を入れる" \
-    --width=550 --height=300)
+# 🔘 【ステップ1】OSモードの選択（ラジオボタン）
+OS_MODE=$(zenity --list --radiolist \
+  --title="ステップ 1/2: OSモードの選択" \
+  --text="ベースとなるOSのモードを1つだけ選んでください。" \
+  --column="選択" --column="OSモード" --column="説明" \
+  TRUE "Perfect-OS" "起動時に自作SNSとTurboWarpを2画面分割で即起動" \
+  FALSE "Explorer-OS" "ファイルマネージャーが主役のシンプル開発画面" \
+  FALSE "Official-Full" "公式のフル版デスクトップ（PIXEL環境）を入れる" \
+  --width=550 --height=300)
 
-  # キャンセルされたら離脱
-  if [ -z "$OS_MODE" ]; then pkill openbox; exit 1; fi
-  echo "$OS_MODE" > /tmp/user_os_choice.txt
+if [ -z "$OS_MODE" ]; then pkill openbox; exit 1; fi
+echo "$OS_MODE" > /tmp/user_os_choice.txt
 
-  # ☑️ 【ステップ2】アプリの選択（チェックボックス ＝ 複数選択可能！）
-  APPS=$(zenity --list --checklist \
-    --title="ステップ 2/2: 追加アプリの選択" \
-    --text="インストールしたいアプリにチェックを入れてください（複数可）。" \
-    --column="選択" --column="アプリ名" --column="説明" \
-    TRUE "Python3" "プログラミング言語 & pip環境" \
-    TRUE "VS Code" "ブラウザで動く code-server エディタ" \
-    --width=550 --height=300)
+# ☑️ 【ステップ2】アプリの選択（チェックボックス）
+APPS=$(zenity --list --checklist \
+  --title="ステップ 2/2: 追加アプリの選択" \
+  --text="インストールしたいアプリにチェックを入れてください（複数可）。" \
+  --column="選択" --column="アプリ名" --column="説明" \
+  TRUE "Python3" "プログラミング言語 & pip環境" \
+  TRUE "VS Code" "ブラウザで動く code-server エディタ" \
+  --width=550 --height=300)
 
-  echo "$APPS" > /tmp/user_app_choices.txt
-  pkill openbox
-R_EOF
-  chmod +x /tmp/installer_ui.sh
-  startx /tmp/installer_ui.sh -- :0 || true
+echo "$APPS" > /tmp/user_app_choices.txt
+pkill openbox
 
-  # 📦 選択結果に応じたインストール処理
-  if [ -f /tmp/user_os_choice.txt ] && [ -f /tmp/user_app_choices.txt ]; then
-    OS_SELECTED=$(cat /tmp/user_os_choice.txt)
-    APPS_SELECTED=$(cat /tmp/user_app_choices.txt)
-    
-    # 🐍 アプリの個別インストール判定
-    if echo "$APPS_SELECTED" | grep -q "Python3"; then apt-get install -y python3 python3-pip; fi
-    if echo "$APPS_SELECTED" | grep -q "VS Code"; then
-      curl -fsSL https://code-server.dev/install.sh | sh
-      systemctl enable --now code-server@root
-      mkdir -p /root/.config/code-server
-      echo "bind-addr: 127.0.0.1:8080" > /root/.config/code-server/config.yaml
-      echo "auth: none" >> /root/.config/code-server/config.yaml
-      echo "cert: false" >> /root/.config/code-server/config.yaml
-    fi
+# 📦 ダウンロード＆構築処理
+OS_SELECTED=$(cat /tmp/user_os_choice.txt)
+APPS_SELECTED=$(cat /tmp/user_app_choices.txt)
 
-    # 🪟 OSモードの設定（ラジオボタンの結果で確実に分岐）
-    if [ "$OS_SELECTED" = "Official-Full" ]; then
-      apt-get install -y raspberrypi-ui-mods xinit
-    elif [ "$OS_SELECTED" = "Perfect-OS" ]; then
-      apt-get install -y firefox-esr
-      cat << 'P_EOF' > /root/.xinitrc
+# アプリのインストール
+if echo "$APPS_SELECTED" | grep -q "Python3"; then apt-get install -y python3 python3-pip; fi
+if echo "$APPS_SELECTED" | grep -q "VS Code"; then
+  curl -fsSL https://code-server.dev/install.sh | sh
+  systemctl enable --now code-server@root
+  mkdir -p /root/.config/code-server
+  echo "bind-addr: 127.0.0.1:8080" > /root/.config/code-server/config.yaml
+  echo "auth: none" >> /root/.config/code-server/config.yaml
+  echo "cert: false" >> /root/.config/code-server/config.yaml
+fi
+
+# OSモードの変身
+if [ "$OS_SELECTED" = "Official-Full" ]; then
+  apt-get install -y raspberrypi-ui-mods xinit
+elif [ "$OS_SELECTED" = "Perfect-OS" ]; then
+  apt-get install -y firefox-esr
+  cat << 'P_EOF' > /root/.xinitrc
 xsetroot -cursor_name left_ptr
 openbox &
 firefox-esr --window-size=960,1080 --window-position=0,0 --app=file:///root/turbowarp.html &
 firefox-esr --window-size=960,1080 --window-position=960,0 --app=file:///root/sns.html &
 exec openbox
 P_EOF
-      chmod +x /root/.xinitrc
-    else
-      # Explorer-OS
-      apt-get install -y firefox-esr
-      cat << 'E_EOF' > /root/.xinitrc
+  chmod +x /root/.xinitrc
+else
+  apt-get install -y firefox-esr
+  cat << 'E_EOF' > /root/.xinitrc
 xsetroot -cursor_name left_ptr
 openbox &
 pcmanfm --desktop &
 pcmanfm /root &
 exec openbox
 E_EOF
-      chmod +x /root/.xinitrc
-    fi
-  fi
+  chmod +x /root/.xinitrc
+fi
 
-  # 💾 保存先の選択メニュー（SDカード or USB）
-  cat << 'B_EOF' > /root/backup_myself.sh
+# 🌟 3. クローン・バックアップメニューの起動
+# 自分自身を呼び出すために退避
+cat << 'B_EOF' > /root/backup_myself.sh
 #!/bin/bash
 export DISPLAY=:0
+export HOME=/root
 
 WHERE_TO_SAVE=$(zenity --list \
   --title="Save Your Custom OS" \
@@ -165,18 +166,25 @@ elif [ "$WHERE_TO_SAVE" = "2" ]; then
     zenity --info --text="USBメモリへの焼き付けが完了しました！"
   fi
 fi
+
+# インストーラーサービスを無効化して、次回からは普通のデスクトップが起動するようにする
+sudo systemctl disable custom-installer.service
+sudo reboot
 B_EOF
-  chmod +x /root/backup_myself.sh
+chmod +x /root/backup_myself.sh
 
-  touch /var/img_configured
-  echo "=== セットアップ完了！ ==="
-  startx /root/backup_myself.sh -- :0 || true
-  reboot
-  exit 0
-fi
-exit 0
+# バックアップ画面を呼び出す
+/root/backup_myself.sh
 EOF
-sudo chmod +x "$ROOTFS/etc/rc.local"
-sudo touch "$ROOTFS/boot/ssh"
+sudo chmod +x "$ROOTFS/tmp/installer_ui.sh"
 
-echo "=== カスタム注入が正常に完了しました！ ==="
+# 🌟 自動ログイン環境の強制準備 (念のためのセーフティネット)
+sudo mkdir -p "$ROOTFS/etc/systemd/system/getty@tty1.service.d"
+cat << 'EOF' | sudo tee "$ROOTFS/etc/systemd/system/getty@tty1.service.d/autologin.conf"
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+EOF
+
+sudo touch "$ROOTFS/boot/ssh"
+echo "=== システムサービスとしての組み込みが完了しました！ ==="
