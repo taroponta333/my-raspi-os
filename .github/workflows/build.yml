@@ -1,4 +1,4 @@
-name: Phase2 - Alpine Real Partition Image Builder
+name: Phase2 - Alpine Non-Sudo Image Builder
 
 on:
   push:
@@ -13,10 +13,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install Image & Partition Tools
+    - name: Install Pure Creation Tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y dosfstools mtools zip wget parted kpartx
+        sudo apt-get install -y dosfstools mtools zip wget parted
 
     - name: Download Alpine Linux for RPi
       run: |
@@ -29,34 +29,27 @@ jobs:
         chmod +x setup.sh
         ./setup.sh ./alpine_files
 
-    - name: Generate Real MBR Bootable Image
+    - name: Generate Perfect Image (Docking Method)
       run: |
-        # 🫙 250MBの空イメージを作成
+        # 1. 全体となる250MBの空の台座（イメージ）を作成
         dd if=/dev/zero of=alpine-pure-installer.img bs=1M count=250
         
-        # 🗺️ ラズパイ5が必須とする「MBR形式の地図（パーティション）」を刻む
-        sudo parted alpine-pure-installer.img --script mklabel msdos
-        sudo parted alpine-pure-installer.img --script mkpart primary fat32 1MiB 100%
+        # 2. 台座にラズパイ5用の「MBR地図（パーティション）」を刻む（sudo不要）
+        parted alpine-pure-installer.img --script mklabel msdos
+        parted alpine-pure-installer.img --script mkpart primary fat32 1MiB 100%
         
-        # ⚙️ ドライブを仮想的にマウントしてFAT32でクリーンフォーマット
-        LOOP_DEV=$(sudo losetup -f --show alpine-pure-installer.img)
-        sudo kpartx -av $LOOP_DEV
+        # 3. 【ここが秘密兵器】中身のデータ部屋（249MB）を「単体のファイル」として別に作成
+        dd if=/dev/zero of=partition.img bs=1M count=249
+        mkfs.vfat -F 32 partition.img
         
-        # 🧼 パーティションをフォーマット
-        sudo mkfs.vfat -F 32 /dev/mapper/$(basename $LOOP_DEV)p1
+        # 4. データ部屋の中にAlpineの全ファイルを流し込む（sudo不要）
+        mcopy -i partition.img -s alpine_files/* ::/
         
-        # 📂 Alpineの全ファイルを「地図で区切られた正しい部屋」に流し込む
-        mkdir -p mnt
-        sudo mount /dev/mapper/$(basename $LOOP_DEV)p1 mnt
-        sudo cp -r alpine_files/* mnt/
-        sudo umount mnt
+        # 5. 完成したデータ部屋を、台座の1MB目（seek=1）の場所にダイレクトにドッキング！
+        dd if=partition.img of=alpine-pure-installer.img bs=1M seek=1 conv=notrunc
         
-        # 🔓 後片付けをして権限を解放
-        sudo kpartx -d $LOOP_DEV
-        sudo losetup -d $LOOP_DEV
-        sudo chmod 666 alpine-pure-installer.img
-        
-        # 📦 Chromebookで焼きやすいようにZIPに圧縮
+        # 6. 後片付けをしてZIP圧縮
+        rm partition.img
         zip alpine-final-installer.zip alpine-pure-installer.img
 
     - name: Upload Installer Package
